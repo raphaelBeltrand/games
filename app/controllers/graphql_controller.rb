@@ -9,8 +9,10 @@ class GraphqlController < ApplicationController
     query = params[:query]
     operation_name = params[:operationName]
     context = {
-      # Query context goes here, for example:
-      # current_user: current_user,
+      current_session: current_session,
+      current_user: current_user,
+      current_user_references: current_user_references,
+      cookies: cookies
     }
     result = GamesSchema.execute(query, variables: variables, context: context, operation_name: operation_name)
     render json: result
@@ -20,6 +22,28 @@ class GraphqlController < ApplicationController
   end
 
   private
+
+  def current_session
+    @current_session ||= Session.find_by(uuid: cookies.signed[:token])
+  end
+
+  def current_user
+    @current_user ||= current_session.try(:user)
+  end
+
+  def current_user_references
+    {
+      ip: Digest::SHA1.hexdigest(request.remote_ip.to_s.split.last.to_s),
+    }.tap do |base|
+      if @current_user.present?
+        base[:user_id] = @current_user.id
+      end
+    end
+  end
+
+  def authorization_token
+    request.headers["Authorization"]&.split(" ").try(:[], 1)
+  end
 
   # Handle form data, JSON body, or a blank value
   def ensure_hash(ambiguous_param)
@@ -43,6 +67,6 @@ class GraphqlController < ApplicationController
     logger.error e.message
     logger.error e.backtrace.join("\n")
 
-    render json: { errors: [{ message: e.message, backtrace: e.backtrace }], data: {} }, status: 500
+    render json: { error: { message: e.message, backtrace: e.backtrace }, data: {} }, status: 500
   end
 end
